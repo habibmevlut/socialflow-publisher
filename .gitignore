@@ -1,4 +1,5 @@
 node_modules
+.pnpm-store
 .turbo
 dist
 .next
@@ -6,3 +7,4 @@ dist
 .env.local
 coverage
 *.tsbuildinfo
+.vercel

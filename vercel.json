@@ -1,0 +1,5 @@
+{
+  "buildCommand": "pnpm run build --filter=@socialflow/web",
+  "installCommand": "pnpm install",
+  "framework": "nextjs"
+}

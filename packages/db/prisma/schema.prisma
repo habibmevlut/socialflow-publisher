@@ -1,0 +1,97 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User owns Organization. First login creates both.
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String?
+  image        String?  // OAuth profile picture
+  passwordHash String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  ownedOrganizations Organization[]
+  createdPosts       Post[]         @relation("CreatedBy")
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  ownerId   String
+  name      String
+  plan      String?  @default("free")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner          User             @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  socialAccounts SocialAccount[]
+  posts          Post[]
+}
+
+model SocialAccount {
+  id                 String   @id @default(cuid())
+  organizationId     String
+  platform           String   // instagram | youtube | tiktok | facebook
+  externalAccountId  String?
+  displayName        String?
+  status             String   @default("active") // active | expired | revoked
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  postTargets  PostTarget[]
+  token        SocialToken?
+}
+
+model SocialToken {
+  id                String   @id @default(cuid())
+  socialAccountId   String   @unique
+  accessToken       String
+  refreshToken      String?
+  expiresAt         DateTime?
+  scopes            String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  socialAccount SocialAccount @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+}
+
+model Post {
+  id             String    @id @default(cuid())
+  organizationId String
+  title          String
+  videoUrl       String
+  status         String    @default("draft") // draft | pending_approval | approved | scheduled | published | failed
+  scheduledAt    DateTime?
+  createdById    String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User?         @relation("CreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  targets      PostTarget[]
+}
+
+model PostTarget {
+  id              String    @id @default(cuid())
+  postId          String
+  socialAccountId String?
+  platform        String
+  accountId       String
+  caption         String?
+  enabled         Boolean   @default(true)
+  status          String    @default("pending")
+  errorMessage    String?
+  publishedAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  post          Post          @relation(fields: [postId], references: [id], onDelete: Cascade)
+  socialAccount SocialAccount? @relation(fields: [socialAccountId], references: [id], onDelete: SetNull)
+}

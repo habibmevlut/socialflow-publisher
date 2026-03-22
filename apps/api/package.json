@@ -3,34 +3,33 @@
   "private": true,
   "version": "0.1.0",
   "scripts": {
-    "dev": "prisma generate && tsx watch src/main.ts",
-    "build": "prisma generate && tsc -p tsconfig.json",
+    "dev": "pnpm exec prisma generate --schema=../../packages/db/prisma/schema.prisma && tsx watch src/main.ts",
+    "build": "pnpm exec prisma generate --schema=../../packages/db/prisma/schema.prisma && tsc -p tsconfig.json",
     "start": "node dist/main.js",
-    "db:generate": "prisma generate",
-    "db:migrate": "prisma migrate dev",
-    "db:push": "prisma db push",
-    "db:studio": "prisma studio",
-    "db:seed": "tsx prisma/seed.ts",
+    "db:generate": "pnpm exec prisma generate --schema=../../packages/db/prisma/schema.prisma",
+    "db:migrate": "pnpm exec prisma migrate dev --schema=../../packages/db/prisma/schema.prisma",
+    "db:push": "pnpm exec prisma db push --schema=../../packages/db/prisma/schema.prisma",
+    "db:studio": "pnpm exec prisma studio --schema=../../packages/db/prisma/schema.prisma",
+    "db:seed": "pnpm --filter @socialflow/db db:seed",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "echo \"lint will be added\""
-  },
-  "prisma": {
-    "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
     "@fastify/cors": "^11.2.0",
     "@fastify/multipart": "^9.0.1",
+    "@socialflow/db": "workspace:*",
+    "bcryptjs": "^3.0.3",
     "bullmq": "^5.70.2",
-    "google-auth-library": "^9.14.0",
     "dotenv": "^16.4.7",
-    "@prisma/client": "^6.9.0",
     "fastify": "^5.8.1",
+    "google-auth-library": "^9.14.0",
+    "jose": "^6.2.2",
     "minio": "^8.0.2",
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@types/node": "^25.3.3",
     "prisma": "^6.9.0",
+    "@types/node": "^25.3.3",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   }

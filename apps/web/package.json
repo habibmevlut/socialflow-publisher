@@ -10,11 +10,16 @@
     "lint": "echo \"lint will be added\""
   },
   "dependencies": {
+    "@socialflow/db": "workspace:*",
+    "bcryptjs": "^3.0.3",
+    "jose": "^6.2.2",
     "next": "^16.1.6",
+    "next-auth": "5.0.0-beta.30",
     "react": "^19.2.4",
     "react-dom": "^19.2.4"
   },
   "devDependencies": {
+    "@types/bcryptjs": "^3.0.0",
     "@types/node": "^25.3.3",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",

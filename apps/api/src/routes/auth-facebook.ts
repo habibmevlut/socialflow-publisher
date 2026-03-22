@@ -95,6 +95,9 @@ export async function authFacebookRoutes(app: FastifyInstance) {
     }
 
     const page = accountsData.data[0];
+    if (!page) {
+      return reply.redirect(`${webBase}/?error=facebook_no_pages`);
+    }
     const pageAccessToken = page.access_token;
     const pageId = page.id;
     const pageName = page.name;

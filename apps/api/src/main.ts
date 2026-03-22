@@ -1,7 +1,4 @@
-import path from "node:path";
-import { config } from "dotenv";
-config({ path: path.resolve(process.cwd(), "../../.env") });
-config({ path: path.resolve(process.cwd(), ".env") }); // apps/api icinde .env varsa
+import "./load-env"; // AUTH_SECRET vb. - auth.ts yuklenmeden once .env yuklenir
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
@@ -12,6 +9,8 @@ import { authYouTubeRoutes } from "./routes/auth-youtube";
 import { authInstagramRoutes } from "./routes/auth-instagram";
 import { authTikTokRoutes } from "./routes/auth-tiktok";
 import { authFacebookRoutes } from "./routes/auth-facebook";
+import { authRegisterRoutes } from "./routes/auth-register";
+import { requireAuth } from "./lib/auth";
 import {
   minioClient,
   MINIO_BUCKET,
@@ -22,7 +21,6 @@ import {
 } from "./lib/minio";
 
 const createPostSchema = z.object({
-  organizationId: z.string().min(1),
   title: z.string().min(2).max(120),
   videoUrl: z.string().url(),
   publishNow: z.boolean().optional().default(false),
@@ -41,17 +39,25 @@ const createPostSchema = z.object({
 
 async function bootstrap() {
   const app = Fastify({ logger: true });
-  await app.register(cors, { origin: true, methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"] });
+  await app.register(cors, {
+  origin: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Authorization", "Content-Type"],
+  exposedHeaders: ["X-Auth-Error"]
+});
   await app.register(multipart, { limits: { fileSize: getMaxSizeBytes() } });
   await app.register(authYouTubeRoutes);
   await app.register(authInstagramRoutes);
   await app.register(authTikTokRoutes);
   await app.register(authFacebookRoutes);
+  await app.register(authRegisterRoutes);
 
   await ensureBucket();
 
   app.post("/v1/media/upload", async (request, reply) => {
-  try {
+    const auth = await requireAuth(request, reply);
+    if (!auth) return;
+    try {
     const data = await request.file();
     if (!data) {
       return reply.status(400).send({ message: "Dosya gerekli" });
@@ -81,6 +87,9 @@ app.get("/health", async () => ({
   }));
 
   app.post("/v1/posts", async (request, reply) => {
+    const auth = await requireAuth(request, reply);
+    if (!auth) return;
+
     const parsed = createPostSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.status(400).send({
@@ -89,7 +98,8 @@ app.get("/health", async () => ({
       });
     }
 
-    const { organizationId, title, videoUrl, publishNow, scheduledAt, targets } = parsed.data;
+    const { title, videoUrl, publishNow, scheduledAt, targets } = parsed.data;
+    const organizationId = auth.organizationId;
 
     const org = await prisma.organization.findUnique({ where: { id: organizationId } });
     if (!org) {
@@ -163,12 +173,16 @@ app.get("/health", async () => ({
   });
 
   app.post("/v1/posts/:id/publish", async (request, reply) => {
+    const auth = await requireAuth(request, reply);
+    if (!auth) return;
+
     const { id } = request.params as { id: string };
     const post = await prisma.post.findUnique({
       where: { id },
       include: { targets: true }
     });
     if (!post) return reply.status(404).send({ message: "Post bulunamadi" });
+    if (post.organizationId !== auth.organizationId) return reply.status(403).send({ message: "Yetkisiz" });
     if (post.status === "published") return reply.status(400).send({ message: "Post zaten yayinlandi" });
 
     for (const t of post.targets) {
@@ -189,10 +203,11 @@ app.get("/health", async () => ({
   });
 
   app.get("/v1/posts", async (request, reply) => {
-    const orgId = (request.query as { organizationId?: string }).organizationId;
+    const auth = await requireAuth(request, reply);
+    if (!auth) return;
 
     const posts = await prisma.post.findMany({
-      where: orgId ? { organizationId: orgId } : undefined,
+      where: { organizationId: auth.organizationId },
       include: { targets: true },
       orderBy: { createdAt: "desc" }
     });
@@ -220,23 +235,23 @@ app.get("/health", async () => ({
   });
 
   app.get("/v1/social-accounts", async (request, reply) => {
-    const orgId = (request.query as { organizationId?: string }).organizationId;
-    if (!orgId) return reply.status(400).send({ message: "organizationId gerekli" });
+    const auth = await requireAuth(request, reply);
+    if (!auth) return;
 
     const accounts = await prisma.socialAccount.findMany({
-      where: { organizationId: orgId },
+      where: { organizationId: auth.organizationId },
       select: { id: true, platform: true, displayName: true, externalAccountId: true, status: true }
     });
     return reply.send(accounts);
   });
 
   app.delete("/v1/social-accounts/:id", async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const orgId = (request.query as { organizationId?: string }).organizationId;
-    if (!orgId) return reply.status(400).send({ message: "organizationId gerekli" });
+    const auth = await requireAuth(request, reply);
+    if (!auth) return;
 
+    const { id } = request.params as { id: string };
     const account = await prisma.socialAccount.findFirst({
-      where: { id, organizationId: orgId }
+      where: { id, organizationId: auth.organizationId }
     });
     if (!account) return reply.status(404).send({ message: "Hesap bulunamadi" });
 

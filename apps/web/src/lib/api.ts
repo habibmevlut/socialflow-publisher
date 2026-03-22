@@ -1,5 +1,9 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
+function authHeaders(token: string): HeadersInit {
+  return { Authorization: `Bearer ${token}` };
+}
+
 export type PostTarget = {
   id: string;
   platform: string;
@@ -21,31 +25,29 @@ export type Post = {
   createdAt: string;
 };
 
-export async function fetchPosts(organizationId?: string): Promise<Post[]> {
-  const url = organizationId
-    ? `${API_URL}/v1/posts?organizationId=${encodeURIComponent(organizationId)}`
-    : `${API_URL}/v1/posts`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error("Postlar yuklenemedi");
+export async function fetchPosts(token: string): Promise<Post[]> {
+  const res = await fetch(`${API_URL}/v1/posts`, { headers: authHeaders(token) });
+  if (!res.ok) {
+    const authError = res.headers.get("X-Auth-Error");
+    if (res.status === 401 && authError) console.warn("[API 401] Sebep:", authError);
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { message?: string }).message ?? "Postlar yuklenemedi");
+  }
   return res.json();
 }
 
-export type CreatePostPayload = {
-  organizationId: string;
+export type CreatePostPayloadWithPublish = {
   title: string;
   videoUrl: string;
+  publishNow?: boolean;
+  scheduledAt?: string;
   targets: { platform: "instagram" | "youtube" | "tiktok" | "facebook"; accountId: string; caption?: string; enabled?: boolean }[];
 };
 
-export type CreatePostPayloadWithPublish = CreatePostPayload & {
-  publishNow?: boolean;
-  scheduledAt?: string;
-};
-
-export async function createPost(payload: CreatePostPayload | CreatePostPayloadWithPublish): Promise<Post> {
+export async function createPost(payload: CreatePostPayloadWithPublish, token: string): Promise<Post> {
   const res = await fetch(`${API_URL}/v1/posts`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders(token) },
     body: JSON.stringify(payload)
   });
   if (!res.ok) {
@@ -63,17 +65,22 @@ export type SocialAccount = {
   status: string;
 };
 
-export async function fetchSocialAccounts(organizationId: string): Promise<SocialAccount[]> {
-  const res = await fetch(`${API_URL}/v1/social-accounts?organizationId=${encodeURIComponent(organizationId)}`);
-  if (!res.ok) throw new Error("Hesaplar yuklenemedi");
+export async function fetchSocialAccounts(token: string): Promise<SocialAccount[]> {
+  const res = await fetch(`${API_URL}/v1/social-accounts`, { headers: authHeaders(token) });
+  if (!res.ok) {
+    const authError = res.headers.get("X-Auth-Error");
+    if (res.status === 401 && authError) console.warn("[API 401] Sebep:", authError);
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { message?: string }).message ?? "Hesaplar yuklenemedi");
+  }
   return res.json();
 }
 
-export async function removeSocialAccount(accountId: string, organizationId: string): Promise<void> {
-  const res = await fetch(
-    `${API_URL}/v1/social-accounts/${accountId}?organizationId=${encodeURIComponent(organizationId)}`,
-    { method: "DELETE" }
-  );
+export async function removeSocialAccount(accountId: string, token: string): Promise<void> {
+  const res = await fetch(`${API_URL}/v1/social-accounts/${accountId}`, {
+    method: "DELETE",
+    headers: authHeaders(token)
+  });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message ?? "Hesap kaldirilamadi");
@@ -96,11 +103,12 @@ export function getFacebookConnectUrl(organizationId: string): string {
   return `${API_URL.replace(/\/$/, "")}/auth/facebook/connect?organizationId=${encodeURIComponent(organizationId)}`;
 }
 
-export async function uploadMedia(file: File): Promise<{ url: string }> {
+export async function uploadMedia(file: File, token: string): Promise<{ url: string }> {
   const formData = new FormData();
   formData.append("file", file);
   const res = await fetch(`${API_URL}/v1/media/upload`, {
     method: "POST",
+    headers: authHeaders(token),
     body: formData
   });
   if (!res.ok) {
@@ -110,8 +118,11 @@ export async function uploadMedia(file: File): Promise<{ url: string }> {
   return res.json();
 }
 
-export async function publishPost(postId: string): Promise<{ message: string }> {
-  const res = await fetch(`${API_URL}/v1/posts/${postId}/publish`, { method: "POST" });
+export async function publishPost(postId: string, token: string): Promise<{ message: string }> {
+  const res = await fetch(`${API_URL}/v1/posts/${postId}/publish`, {
+    method: "POST",
+    headers: authHeaders(token)
+  });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message ?? "Yayin basarisiz");

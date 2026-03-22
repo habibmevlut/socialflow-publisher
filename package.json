@@ -12,6 +12,9 @@
     "tunnel:cf": "cloudflared tunnel --url http://localhost:4000",
     "tunnel:cf:minio": "cloudflared tunnel --url http://localhost:9000",
     "db:studio": "node scripts/db-studio.mjs",
+    "db:push": "node -e \"require('dotenv').config({path:'.env'}); require('child_process').execSync('pnpm --filter @socialflow/db exec prisma db push', {stdio:'inherit', env: process.env})\"",
+    "db:reset": "node -e \"require('dotenv').config({path:'.env'}); require('child_process').execSync('pnpm --filter @socialflow/db exec prisma db push --force-reset', {stdio:'inherit', env: process.env})\"",
+    "db:seed": "node -e \"require('dotenv').config({path:'.env'}); require('child_process').execSync('pnpm --filter @socialflow/db db:seed', {stdio:'inherit', env: process.env})\"",
     "build": "turbo run build",
     "typecheck": "turbo run typecheck",
     "lint": "turbo run lint"

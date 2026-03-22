@@ -1,18 +1,23 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useSession, signOut } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import { fetchPosts, createPost, publishPost, fetchSocialAccounts, removeSocialAccount, getYouTubeConnectUrl, getInstagramConnectUrl, getTikTokConnectUrl, getFacebookConnectUrl, uploadMedia, type Post } from "../lib/api";
-
-const ORG_ID = "demo-org-1";
+import { useApiToken } from "../hooks/useApiToken";
+import pageStyles from "./page.module.css";
 
 export default function HomePage() {
+  const { data: session, status } = useSession();
+  const router = useRouter();
+  const token = useApiToken();
+
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const [accounts, setAccounts] = useState<{ id: string; platform: string; displayName: string | null; status: string }[]>([]);
   const [form, setForm] = useState({
-    organizationId: ORG_ID,
     title: "",
     videoUrl: "",
     publishNow: false,
@@ -32,28 +37,32 @@ export default function HomePage() {
     setMinScheduleDate(new Date().toISOString().slice(0, 16));
   }, []);
 
-  const loadPosts = () => {
-    fetchPosts()
+  const loadPosts = useCallback(() => {
+    if (!token) return;
+    fetchPosts(token)
       .then(setPosts)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  };
+  }, [token]);
   const loadAccounts = useCallback(() => {
-    return fetchSocialAccounts(ORG_ID).then(setAccounts).catch(() => {});
-  }, []);
+    if (!token) return Promise.resolve();
+    return fetchSocialAccounts(token).then(setAccounts).catch(() => {});
+  }, [token]);
 
   useEffect(() => {
-    loadPosts();
-    loadAccounts();
-  }, [loadAccounts]);
+    if (token) {
+      loadPosts();
+      loadAccounts();
+    }
+  }, [token, loadPosts, loadAccounts]);
 
-  // Worker tamamlandiginda status guncellemesi icin polling (bekleyen post varsa)
   useEffect(() => {
+    if (!token) return;
     const hasPending = posts.some((p) => p.targets?.some((t) => t.status === "pending"));
     if (!hasPending) return;
-    const interval = setInterval(() => fetchPosts().then(setPosts).catch(() => {}), 5000);
+    const interval = setInterval(() => fetchPosts(token).then(setPosts).catch(() => {}), 5000);
     return () => clearInterval(interval);
-  }, [posts]);
+  }, [posts, token]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -76,12 +85,32 @@ export default function HomePage() {
     }
   }, [loadAccounts]);
 
-  const refreshPosts = () => fetchPosts().then(setPosts).catch(() => {});
+  useEffect(() => {
+    if (status === "unauthenticated") {
+      router.replace("/login?callbackUrl=/");
+    }
+  }, [status, router]);
+
+  if (status === "loading") {
+    return (
+      <div className={pageStyles.loadingContainer} role="status" aria-live="polite" aria-label="Yükleniyor">
+        <div className={pageStyles.spinner} aria-hidden />
+        <span className={pageStyles.text}>Yükleniyor...</span>
+      </div>
+    );
+  }
+  if (status === "unauthenticated") {
+    return null;
+  }
+
+  const organizationId = (session?.user as { organizationId?: string })?.organizationId ?? null;
+  const refreshPosts = () => token && fetchPosts(token).then(setPosts).catch(() => {});
 
   const handlePublish = async (postId: string) => {
+    if (!token) return;
     setPublishingId(postId);
     try {
-      await publishPost(postId);
+      await publishPost(postId, token);
       await refreshPosts();
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : "Yayin hatasi");
@@ -91,10 +120,11 @@ export default function HomePage() {
   };
 
   const doUpload = async (file: File) => {
+    if (!token) return;
     setUploadError(null);
     setUploading(true);
     try {
-      const { url } = await uploadMedia(file);
+      const { url } = await uploadMedia(file, token);
       setUploadedUrl(url);
       setForm((f) => ({ ...f, videoUrl: url }));
     } catch (e) {
@@ -147,10 +177,14 @@ export default function HomePage() {
     setSubmitting(true);
     const publishNow = form.publishNow && !form.scheduledAt;
     const scheduledAt = form.scheduledAt ? new Date(form.scheduledAt).toISOString() : undefined;
-    const payload = { organizationId: form.organizationId, title: form.title, videoUrl, publishNow, scheduledAt, targets };
+    const payload = { title: form.title, videoUrl, publishNow, scheduledAt, targets };
 
+    if (!token) {
+      setSubmitError("Oturum gerekli");
+      return;
+    }
     try {
-      const created = await createPost(payload);
+      const created = await createPost(payload, token);
       setPosts((prev) => [created, ...prev]);
       setForm((f) => ({ ...f, title: "", videoUrl: "", scheduledAt: "" }));
       setUploadedFile(null);
@@ -166,8 +200,22 @@ export default function HomePage() {
 
   return (
     <main style={{ padding: 24, maxWidth: 880, margin: "0 auto", fontFamily: "system-ui" }}>
-      <h1>Socialflow Publisher</h1>
-      <p>Tek panelden YouTube, Instagram, TikTok ve Facebook paylasim yonetimi.</p>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <h1 style={{ margin: 0 }}>Socialflow Publisher</h1>
+          <p style={{ margin: "4px 0 0", color: "#666", fontSize: 14 }}>Tek panelden YouTube, Instagram, TikTok ve Facebook paylasim yonetimi.</p>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <span style={{ fontSize: 14, color: "#666" }}>{session?.user?.email}</span>
+          <button
+            type="button"
+            onClick={() => signOut({ callbackUrl: "/login" })}
+            style={{ padding: "6px 12px", fontSize: 14, cursor: "pointer", border: "1px solid #ccc", borderRadius: 6, background: "#f5f5f5" }}
+          >
+            Cikis
+          </button>
+        </div>
+      </div>
 
       <section style={{ marginTop: 32 }}>
         <h2>Bagli Hesaplar</h2>
@@ -206,8 +254,9 @@ export default function HomePage() {
               <button
                 type="button"
                 onClick={() => {
+                  if (!token) return;
                   if (confirm("Bu hesabi kaldirmak istediginize emin misiniz?")) {
-                    removeSocialAccount(a.id, ORG_ID).then(loadAccounts).catch((e) => alert(e.message));
+                    removeSocialAccount(a.id, token).then(loadAccounts).catch((e) => alert(e.message));
                   }
                 }}
                 style={{ background: "none", border: "none", cursor: "pointer", fontSize: 16, opacity: 0.7 }}
@@ -234,8 +283,9 @@ export default function HomePage() {
               <button
                 type="button"
                 onClick={() => {
+                  if (!token) return;
                   if (confirm("Bu hesabi kaldirmak istediginize emin misiniz?")) {
-                    removeSocialAccount(a.id, ORG_ID).then(loadAccounts).catch((e) => alert(e.message));
+                    removeSocialAccount(a.id, token).then(loadAccounts).catch((e) => alert(e.message));
                   }
                 }}
                 style={{ background: "none", border: "none", cursor: "pointer", fontSize: 16, opacity: 0.7 }}
@@ -262,8 +312,9 @@ export default function HomePage() {
               <button
                 type="button"
                 onClick={() => {
+                  if (!token) return;
                   if (confirm("Bu hesabi kaldirmak istediginize emin misiniz?")) {
-                    removeSocialAccount(a.id, ORG_ID).then(loadAccounts).catch((e) => alert(e.message));
+                    removeSocialAccount(a.id, token).then(loadAccounts).catch((e) => alert(e.message));
                   }
                 }}
                 style={{ background: "none", border: "none", cursor: "pointer", fontSize: 16, opacity: 0.7 }}
@@ -290,8 +341,9 @@ export default function HomePage() {
               <button
                 type="button"
                 onClick={() => {
+                  if (!token) return;
                   if (confirm("Bu hesabi kaldirmak istediginize emin misiniz?")) {
-                    removeSocialAccount(a.id, ORG_ID).then(loadAccounts).catch((e) => alert(e.message));
+                    removeSocialAccount(a.id, token).then(loadAccounts).catch((e) => alert(e.message));
                   }
                 }}
                 style={{ background: "none", border: "none", cursor: "pointer", fontSize: 16, opacity: 0.7 }}
@@ -305,7 +357,7 @@ export default function HomePage() {
             <span style={{ color: "#666", fontSize: 14 }}>Henuz bagli hesap yok.</span>
           )}
           <a
-            href={getYouTubeConnectUrl(ORG_ID)}
+            href={organizationId ? getYouTubeConnectUrl(organizationId) : "#"}
             style={{
               padding: "8px 16px",
               background: "#c62828",
@@ -319,7 +371,7 @@ export default function HomePage() {
             + YouTube Bagla
           </a>
           <a
-            href={getInstagramConnectUrl(ORG_ID)}
+            href={organizationId ? getInstagramConnectUrl(organizationId) : "#"}
             style={{
               padding: "8px 16px",
               background: "linear-gradient(45deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888)",
@@ -333,7 +385,7 @@ export default function HomePage() {
             + Instagram Bagla
           </a>
           <a
-            href={getTikTokConnectUrl(ORG_ID)}
+            href={organizationId ? getTikTokConnectUrl(organizationId) : "#"}
             style={{
               padding: "8px 16px",
               background: "#000",
@@ -347,7 +399,7 @@ export default function HomePage() {
             + TikTok Bagla
           </a>
           <a
-            href={getFacebookConnectUrl(ORG_ID)}
+            href={organizationId ? getFacebookConnectUrl(organizationId) : "#"}
             style={{
               padding: "8px 16px",
               background: "#1877f2",

@@ -3,22 +3,22 @@
   "private": true,
   "version": "0.1.0",
   "scripts": {
-    "dev": "prisma generate --schema=../api/prisma/schema.prisma && tsx watch src/index.ts",
-    "build": "prisma generate --schema=../api/prisma/schema.prisma && tsc -p tsconfig.json",
+    "dev": "pnpm exec prisma generate --schema=../../packages/db/prisma/schema.prisma && tsx watch src/index.ts",
+    "build": "pnpm exec prisma generate --schema=../../packages/db/prisma/schema.prisma && tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "echo \"lint will be added\""
   },
   "dependencies": {
-    "@prisma/client": "^6.19.2",
+    "@socialflow/db": "workspace:*",
     "dotenv": "^16.4.7",
     "bullmq": "^5.70.2",
     "google-auth-library": "^9.14.0",
     "googleapis": "^144.0.0"
   },
   "devDependencies": {
+    "prisma": "^6.9.0",
     "@types/node": "^25.3.3",
-    "prisma": "^6.19.2",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   }

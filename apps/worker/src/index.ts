@@ -6,7 +6,7 @@ config({ path: rootEnv });
 config({ path: path.resolve(process.cwd(), ".env") });
 
 import { Queue, Worker } from "bullmq";
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "@socialflow/db";
 import { uploadVideoToYouTube } from "./youtube-upload";
 import { uploadVideoToInstagram } from "./instagram-upload";
 import { uploadVideoToTikTok } from "./tiktok-upload";
@@ -17,7 +17,6 @@ const connection = {
   port: Number(process.env.REDIS_PORT ?? 6379)
 };
 
-const prisma = new PrismaClient();
 const queueName = "publish-post";
 const publishQueue = new Queue(queueName, { connection });
 

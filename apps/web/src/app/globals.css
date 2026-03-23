@@ -1,0 +1,9 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --sidebar-bg: 222 47% 11%;
+  --sidebar-text: 210 40% 98%;
+  --sidebar-hover: 217 33% 17%;
+}

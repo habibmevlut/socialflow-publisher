@@ -17,15 +17,18 @@ export default function HomePage() {
   const [error, setError] = useState<string | null>(null);
 
   const [accounts, setAccounts] = useState<{ id: string; platform: string; displayName: string | null; status: string }[]>([]);
+  const [mediaType, setMediaType] = useState<"video" | "image">("video");
   const [form, setForm] = useState({
     title: "",
-    videoUrl: "",
+    mediaUrls: [] as string[],
+    videoUrlInput: "", // manuel URL (sadece video)
     publishNow: false,
     scheduledAt: ""
   });
-  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
-  const [uploadedUrl, setUploadedUrl] = useState<string | null>(null);
+  const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
+  const [uploadedUrls, setUploadedUrls] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [uploadingIndex, setUploadingIndex] = useState<number | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [selectedTargets, setSelectedTargets] = useState<Record<string, { enabled: boolean; caption: string }>>({});
   const [submitting, setSubmitting] = useState(false);
@@ -119,38 +122,80 @@ export default function HomePage() {
     }
   };
 
-  const doUpload = async (file: File) => {
+  const doUpload = async (file: File, index?: number) => {
     if (!token) return;
     setUploadError(null);
-    setUploading(true);
+    if (mediaType === "video") {
+      setUploading(true);
+    } else {
+      setUploadingIndex(index ?? 0);
+    }
     try {
       const { url } = await uploadMedia(file, token);
-      setUploadedUrl(url);
-      setForm((f) => ({ ...f, videoUrl: url }));
+      if (mediaType === "video") {
+        setUploadedUrls([url]);
+        setForm((f) => ({ ...f, mediaUrls: [url] }));
+      } else {
+        setUploadedUrls((prev) => {
+          const next =
+            index !== undefined
+              ? [...prev.slice(0, index), url, ...prev.slice(index + 1)]
+              : [...prev, url];
+          setForm((f) => ({ ...f, mediaUrls: next }));
+          return next;
+        });
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Yukleme hatasi";
       setUploadError(msg);
     } finally {
       setUploading(false);
+      setUploadingIndex(null);
     }
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploadedFile(file);
-    setUploadedUrl(null);
-    setForm((f) => ({ ...f, videoUrl: "" }));
+    const files = Array.from(e.target.files ?? []);
+    if (files.length === 0) return;
     setUploadError(null);
-    await doUpload(file);
+    if (mediaType === "video") {
+      const file = files[0];
+      if (!file) return;
+      setUploadedFiles([file]);
+      setUploadedUrls([]);
+      setForm((f) => ({ ...f, mediaUrls: [] }));
+      await doUpload(file);
+    } else {
+      const toUpload = files.slice(0, 10);
+      setUploadedFiles(toUpload);
+      setUploadedUrls([]);
+      setForm((f) => ({ ...f, mediaUrls: [] }));
+      for (let i = 0; i < toUpload.length; i++) {
+        const f = toUpload[i];
+        if (f) await doUpload(f, i);
+      }
+    }
+    e.target.value = "";
+  };
+
+  const removeImageAtIndex = (index: number) => {
+    setUploadedUrls((prev) => prev.filter((_, i) => i !== index));
+    setUploadedFiles((prev) => prev.filter((_, i) => i !== index));
+    setForm((f) => ({ ...f, mediaUrls: f.mediaUrls.filter((_, i) => i !== index) }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitError(null);
     setUploadError(null);
+    const mediaUrls =
+      mediaType === "video" && form.mediaUrls.length === 0 && form.videoUrlInput?.startsWith("http")
+        ? [form.videoUrlInput]
+        : form.mediaUrls;
+    const imagePlatforms = ["instagram", "facebook"];
     const targets = accounts
       .filter((a) => selectedTargets[a.id]?.enabled)
+      .filter((a) => (mediaType === "image" ? imagePlatforms.includes(a.platform) : true))
       .map((a) => ({
         platform: a.platform as "instagram" | "youtube" | "tiktok" | "facebook",
         accountId: a.id,
@@ -158,37 +203,47 @@ export default function HomePage() {
         enabled: true
       }));
     if (targets.length === 0) {
-      setSubmitError("En az bir platform secin");
+      setSubmitError(
+        mediaType === "image"
+          ? "Resim icin Instagram veya Facebook secin (YouTube/TikTok resim desteklemiyor)"
+          : "En az bir platform secin"
+      );
       return;
     }
-    let videoUrl = form.videoUrl;
-    if (uploadedFile && !uploadedUrl && !uploading) {
+    if (uploading) {
       setSubmitError("Dosya yukleniyor, lutfen bekleyin");
       return;
     }
-    if (uploadedFile && !uploadedUrl && uploadError) {
-      setSubmitError("Yukleme basarisiz. Tekrar deneyin veya URL girin.");
+    if (mediaType === "video" && (mediaUrls.length !== 1 || !mediaUrls[0])) {
+      setSubmitError("Video dosyasi yukleyin veya URL girin");
       return;
     }
-    if (!videoUrl) {
-      setSubmitError("Video URL veya dosya gerekli");
+    if (mediaType === "image" && (mediaUrls.length < 1 || mediaUrls.length > 10)) {
+      setSubmitError("Resim icin 1-10 dosya yukleyin");
       return;
     }
     setSubmitting(true);
     const publishNow = form.publishNow && !form.scheduledAt;
     const scheduledAt = form.scheduledAt ? new Date(form.scheduledAt).toISOString() : undefined;
-    const payload = { title: form.title, videoUrl, publishNow, scheduledAt, targets };
-
+    const payload = {
+      title: form.title,
+      mediaType,
+      mediaUrls,
+      publishNow,
+      scheduledAt,
+      targets
+    };
     if (!token) {
       setSubmitError("Oturum gerekli");
+      setSubmitting(false);
       return;
     }
     try {
       const created = await createPost(payload, token);
       setPosts((prev) => [created, ...prev]);
-      setForm((f) => ({ ...f, title: "", videoUrl: "", scheduledAt: "" }));
-      setUploadedFile(null);
-      setUploadedUrl(null);
+      setForm((f) => ({ ...f, title: "", mediaUrls: [], scheduledAt: "" }));
+      setUploadedFiles([]);
+      setUploadedUrls([]);
       setUploadError(null);
       setSelectedTargets({});
     } catch (e) {
@@ -439,46 +494,143 @@ export default function HomePage() {
             style={{ padding: 8 }}
           />
           <div>
-            <label style={{ display: "block", marginBottom: 4, fontSize: 14 }}>Video: dosya yukle veya URL gir</label>
+            <label style={{ display: "block", marginBottom: 8, fontSize: 14 }}>Medya tipi</label>
+            <div style={{ display: "flex", gap: 16 }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                <input
+                  type="radio"
+                  name="mediaType"
+                  checked={mediaType === "video"}
+                  onChange={() => {
+                    setMediaType("video");
+                    setForm((f) => ({ ...f, mediaUrls: [], videoUrlInput: f.videoUrlInput }));
+                    setUploadedFiles([]);
+                    setUploadedUrls([]);
+                  }}
+                />
+                Video
+              </label>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                <input
+                  type="radio"
+                  name="mediaType"
+                  checked={mediaType === "image"}
+                  onChange={() => {
+                    setMediaType("image");
+                    setForm((f) => ({ ...f, mediaUrls: [], videoUrlInput: "" }));
+                    setUploadedFiles([]);
+                    setUploadedUrls([]);
+                  }}
+                />
+                Resim (tek veya carousel 2-10)
+              </label>
+            </div>
+          </div>
+          <div>
+            <label style={{ display: "block", marginBottom: 4, fontSize: 14 }}>
+              {mediaType === "video" ? "Video: " : "Resim(ler): "}dosya yukle
+              {mediaType === "video" && " veya URL gir"}
+            </label>
             <input
               type="file"
-              accept="video/mp4,video/quicktime,video/webm,video/x-msvideo"
+              accept={mediaType === "video" ? "video/mp4,video/quicktime,video/webm,video/x-msvideo" : "image/jpeg,image/png,image/webp"}
+              multiple={mediaType === "image"}
               onChange={handleFileChange}
               disabled={uploading}
               style={{ padding: 8, marginBottom: 8 }}
             />
             {uploading && <span style={{ fontSize: 13, color: "#666" }}>Yukleniyor...</span>}
-            {uploadedUrl && <span style={{ fontSize: 13, color: "green" }}>Yuklendi: {uploadedUrl}</span>}
+            {mediaType === "image" && uploadedUrls.length > 0 && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+                {uploadedUrls.map((url, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      position: "relative",
+                      width: 80,
+                      height: 80,
+                      borderRadius: 8,
+                      overflow: "hidden",
+                      border: "1px solid #ddd"
+                    }}
+                  >
+                    <img src={url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    <button
+                      type="button"
+                      onClick={() => removeImageAtIndex(i)}
+                      style={{
+                        position: "absolute",
+                        top: 4,
+                        right: 4,
+                        width: 24,
+                        height: 24,
+                        borderRadius: "50%",
+                        border: "none",
+                        background: "rgba(0,0,0,0.6)",
+                        color: "white",
+                        cursor: "pointer",
+                        fontSize: 14
+                      }}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {mediaType === "video" && uploadedUrls[0] && (
+              <span style={{ fontSize: 13, color: "green", display: "block", marginTop: 4 }}>Yuklendi</span>
+            )}
             {uploadError && (
               <span style={{ fontSize: 13, color: "#c62828", display: "block", marginTop: 4 }}>
                 {uploadError}{" "}
-                {uploadedFile && (
-                  <button type="button" onClick={() => doUpload(uploadedFile)} style={{ marginLeft: 8, cursor: "pointer" }}>
+                {uploadedFiles[0] && mediaType === "video" && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const f = uploadedFiles[0];
+                      if (f) doUpload(f);
+                    }}
+                    style={{ marginLeft: 8, cursor: "pointer" }}
+                  >
                     Tekrar yukle
                   </button>
                 )}
               </span>
             )}
-            <input
-              type="url"
-              placeholder="veya Video URL (ornek: https://example.com/video.mp4)"
-              value={form.videoUrl}
-              onChange={(e) => {
-                setForm((f) => ({ ...f, videoUrl: e.target.value }));
-                if (e.target.value) setUploadedFile(null);
-              }}
-              style={{ padding: 8, marginTop: 8, width: "100%", boxSizing: "border-box" }}
-            />
+            {mediaType === "video" && (
+              <input
+                type="url"
+                placeholder="veya Video URL (ornek: https://example.com/video.mp4)"
+                value={form.videoUrlInput}
+                onChange={(e) => {
+                  setForm((f) => ({ ...f, videoUrlInput: e.target.value }));
+                  if (e.target.value) {
+                    setUploadedFiles([]);
+                    setUploadedUrls([]);
+                    setForm((f) => ({ ...f, mediaUrls: [] }));
+                  }
+                }}
+                style={{ padding: 8, marginTop: 8, width: "100%", boxSizing: "border-box" }}
+              />
+            )}
           </div>
           <div style={{ marginTop: 8 }}>
             <strong>Nerede paylasilsin?</strong>
+            {mediaType === "image" && (
+              <p style={{ fontSize: 13, color: "#1976d2", marginTop: 4 }}>
+                Resim/carousel sadece Instagram ve Facebook destekler.
+              </p>
+            )}
             {accounts.length === 0 ? (
               <p style={{ color: "#666", fontSize: 14, marginTop: 8 }}>
                 Bagli hesap yok. Yukaridan YouTube, Instagram, TikTok veya Facebook baglayin.
               </p>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 8 }}>
-                {accounts.map((acc) => (
+                {accounts
+                  .filter((acc) => (mediaType === "image" ? ["instagram", "facebook"].includes(acc.platform) : true))
+                  .map((acc) => (
                   <div
                     key={acc.id}
                     style={{
@@ -591,7 +743,11 @@ export default function HomePage() {
                   )}
                 </div>
                 <br />
-                <small style={{ display: "block", marginBottom: 8 }}>{p.videoUrl}</small>
+                <small style={{ display: "block", marginBottom: 8 }}>
+                  {p.mediaType === "image" && p.mediaUrls?.length > 1
+                    ? `Carousel (${p.mediaUrls.length} resim)`
+                    : p.mediaUrls?.[0] ?? p.videoUrl ?? "-"}
+                </small>
                 <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 8 }}>
                   {p.targets.map((t) => (
                     <div

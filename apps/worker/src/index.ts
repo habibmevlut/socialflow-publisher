@@ -1,9 +1,4 @@
-import path from "node:path";
-import { config } from "dotenv";
-// Cwd turbo ile degisebilir; __dirname ile proje kokune gore yukle
-const rootEnv = path.resolve(__dirname, "../../../.env");
-config({ path: rootEnv });
-config({ path: path.resolve(process.cwd(), ".env") });
+import "./load-env";
 
 import { Queue, Worker } from "bullmq";
 import { prisma } from "@socialflow/db";
@@ -11,6 +6,10 @@ import { uploadVideoToYouTube } from "./youtube-upload";
 import { uploadVideoToInstagram } from "./instagram-upload";
 import { uploadVideoToTikTok } from "./tiktok-upload";
 import { uploadVideoToFacebook } from "./facebook-upload";
+import { uploadImageToInstagram } from "./instagram-image-upload";
+import { uploadCarouselToInstagram } from "./instagram-carousel-upload";
+import { uploadImageToFacebook } from "./facebook-image-upload";
+import { uploadCarouselToFacebook } from "./facebook-carousel-upload";
 
 const connection = {
   host: process.env.REDIS_HOST ?? "127.0.0.1",
@@ -25,7 +24,8 @@ type PublishJobData = {
   postTargetId: string;
   platform: string;
   accountId: string;
-  videoUrl: string;
+  mediaType: "video" | "image";
+  mediaUrls: string[];
 };
 
 function getYouTubeErrorMessage(err: unknown): string {
@@ -48,16 +48,31 @@ function getYouTubeErrorMessage(err: unknown): string {
   return "Bilinmeyen yukleme hatasi";
 }
 
+function getMediaUrls(post: {
+  media: { mediaUrl: string; sortOrder: number }[];
+  videoUrl: string | null;
+}): string[] {
+  if (post.media.length > 0) {
+    return post.media
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+      .map((m) => m.mediaUrl);
+  }
+  return post.videoUrl ? [post.videoUrl] : [];
+}
+
 async function runScheduler() {
-  const now = new Date();
-  const posts = await prisma.post.findMany({
+  try {
+    const now = new Date();
+    const posts = await prisma.post.findMany({
     where: {
       status: "scheduled",
       scheduledAt: { not: null, lte: now }
     },
-    include: { targets: true }
+    include: { targets: true, media: true }
   });
   for (const post of posts) {
+    const mediaUrls = getMediaUrls(post);
+    if (mediaUrls.length === 0) continue;
     for (const t of post.targets) {
       if (t.enabled && t.status === "pending") {
         await publishQueue.add("publish", {
@@ -65,7 +80,8 @@ async function runScheduler() {
           postTargetId: t.id,
           platform: t.platform,
           accountId: t.accountId,
-          videoUrl: post.videoUrl
+          mediaType: post.mediaType as "video" | "image",
+          mediaUrls
         } as PublishJobData);
       }
     }
@@ -77,14 +93,35 @@ async function runScheduler() {
   if (posts.length > 0) {
     console.log(`[scheduler] Enqueued ${posts.length} scheduled post(s)`);
   }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("Can't reach database")) {
+      console.warn("[scheduler] Veritabani henuz hazir degil, 60sn sonra tekrar denenecek.");
+    } else {
+      console.error("[scheduler] Hata:", msg);
+    }
+  }
 }
 
 const worker = new Worker<PublishJobData>(
   queueName,
   async (job) => {
-    const { postId, postTargetId, platform, accountId, videoUrl } = job.data;
+    const { postId, postTargetId, platform, accountId, mediaType, mediaUrls } = job.data;
+    const videoUrl = mediaUrls[0];
+
+    const failImageUnsupported = async () => {
+      await prisma.postTarget.update({
+        where: { id: postTargetId },
+        data: { status: "failed", errorMessage: `${platform} resim desteklemiyor. Sadece video paylasilabilir.` }
+      });
+    };
 
     if (platform === "youtube") {
+      if (mediaType === "image") {
+        await failImageUnsupported();
+        return { skipped: true, reason: "youtube_no_image" };
+      }
+      if (!videoUrl) throw new Error("Video URL gerekli");
       const post = await prisma.post.findUnique({
         where: { id: postId },
         include: { targets: true }
@@ -163,16 +200,36 @@ const worker = new Worker<PublishJobData>(
         throw new Error("Instagram kullanici ID bulunamadi. Hesabi tekrar baglayin.");
       }
 
-      console.log(`[worker] Instagram upload basliyor: ${post.title} -> ${accountId}`);
+      console.log(`[worker] Instagram upload basliyor: ${post.title} (${mediaType}) -> ${accountId}`);
 
       try {
-        const instagramUrl = await uploadVideoToInstagram({
-          accessToken: account.token.accessToken,
-          igUserId,
-          videoUrl,
-          caption: target.caption,
-          mediaType: "REELS"
-        });
+        let instagramUrl: string;
+        if (mediaType === "video") {
+          if (!videoUrl) throw new Error("Video URL gerekli");
+          instagramUrl = await uploadVideoToInstagram({
+            accessToken: account.token.accessToken,
+            igUserId,
+            videoUrl,
+            caption: target.caption,
+            mediaType: "REELS"
+          });
+        } else if (mediaUrls.length >= 2) {
+          instagramUrl = await uploadCarouselToInstagram({
+            accessToken: account.token.accessToken,
+            igUserId,
+            imageUrls: mediaUrls,
+            caption: target.caption
+          });
+        } else {
+          const imgUrl = mediaUrls[0];
+          if (!imgUrl) throw new Error("Resim URL gerekli");
+          instagramUrl = await uploadImageToInstagram({
+            accessToken: account.token.accessToken,
+            igUserId,
+            imageUrl: imgUrl,
+            caption: target.caption
+          });
+        }
 
         await prisma.postTarget.update({
           where: { id: postTargetId },
@@ -204,6 +261,11 @@ const worker = new Worker<PublishJobData>(
     }
 
     if (platform === "tiktok") {
+      if (mediaType === "image") {
+        await failImageUnsupported();
+        return { skipped: true, reason: "tiktok_no_image" };
+      }
+      if (!videoUrl) throw new Error("Video URL gerekli");
       const post = await prisma.post.findUnique({
         where: { id: postId },
         include: { targets: true }
@@ -280,15 +342,35 @@ const worker = new Worker<PublishJobData>(
         throw new Error("Facebook sayfa ID bulunamadi. Hesabi tekrar baglayin.");
       }
 
-      console.log(`[worker] Facebook upload basliyor: ${post.title} -> ${accountId}`);
+      console.log(`[worker] Facebook upload basliyor: ${post.title} (${mediaType}) -> ${accountId}`);
 
       try {
-        const facebookUrl = await uploadVideoToFacebook({
-          accessToken: account.token.accessToken,
-          pageId,
-          videoUrl,
-          caption: target.caption ?? post.title
-        });
+        let facebookUrl: string;
+        if (mediaType === "video") {
+          if (!videoUrl) throw new Error("Video URL gerekli");
+          facebookUrl = await uploadVideoToFacebook({
+            accessToken: account.token.accessToken,
+            pageId,
+            videoUrl,
+            caption: target.caption ?? post.title
+          });
+        } else if (mediaUrls.length >= 2) {
+          facebookUrl = await uploadCarouselToFacebook({
+            accessToken: account.token.accessToken,
+            pageId,
+            imageUrls: mediaUrls,
+            caption: target.caption ?? post.title
+          });
+        } else {
+          const imgUrl = mediaUrls[0];
+          if (!imgUrl) throw new Error("Resim URL gerekli");
+          facebookUrl = await uploadImageToFacebook({
+            accessToken: account.token.accessToken,
+            pageId,
+            imageUrl: imgUrl,
+            caption: target.caption ?? post.title
+          });
+        }
 
         await prisma.postTarget.update({
           where: { id: postTargetId },

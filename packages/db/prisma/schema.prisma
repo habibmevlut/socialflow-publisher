@@ -62,11 +62,17 @@ model SocialToken {
   socialAccount SocialAccount @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
 }
 
+enum MediaType {
+  video
+  image
+}
+
 model Post {
   id             String    @id @default(cuid())
   organizationId String
   title          String
-  videoUrl       String
+  mediaType      MediaType @default(video)
+  videoUrl       String?   // deprecate: migration sonrasi kaldirilacak, PostMedia kullan
   status         String    @default("draft") // draft | pending_approval | approved | scheduled | published | failed
   scheduledAt    DateTime?
   createdById    String?
@@ -76,6 +82,18 @@ model Post {
   organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   createdBy    User?         @relation("CreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   targets      PostTarget[]
+  media        PostMedia[]
+}
+
+model PostMedia {
+  id        String  @id @default(cuid())
+  postId    String
+  mediaUrl  String
+  sortOrder Int     @default(0) // carousel sirasi
+  mimetype  String?
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  @@index([postId])
 }
 
 model PostTarget {

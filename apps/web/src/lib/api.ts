@@ -18,7 +18,9 @@ export type Post = {
   id: string;
   organizationId: string;
   title: string;
-  videoUrl: string;
+  mediaType: "video" | "image";
+  mediaUrls: string[];
+  videoUrl: string | null; // ilk medya URL (geriye uyumluluk)
   status: string;
   scheduledAt: string | null;
   targets: PostTarget[];
@@ -38,7 +40,8 @@ export async function fetchPosts(token: string): Promise<Post[]> {
 
 export type CreatePostPayloadWithPublish = {
   title: string;
-  videoUrl: string;
+  mediaType: "video" | "image";
+  mediaUrls: string[];
   publishNow?: boolean;
   scheduledAt?: string;
   targets: { platform: "instagram" | "youtube" | "tiktok" | "facebook"; accountId: string; caption?: string; enabled?: boolean }[];
@@ -103,7 +106,10 @@ export function getFacebookConnectUrl(organizationId: string): string {
   return `${API_URL.replace(/\/$/, "")}/auth/facebook/connect?organizationId=${encodeURIComponent(organizationId)}`;
 }
 
-export async function uploadMedia(file: File, token: string): Promise<{ url: string }> {
+export async function uploadMedia(
+  file: File,
+  token: string
+): Promise<{ url: string; mediaType?: "video" | "image" }> {
   const formData = new FormData();
   formData.append("file", file);
   const res = await fetch(`${API_URL}/v1/media/upload`, {

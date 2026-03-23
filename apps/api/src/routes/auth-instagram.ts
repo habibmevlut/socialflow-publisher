@@ -26,7 +26,7 @@ export async function authInstagramRoutes(app: FastifyInstance) {
     const org = await prisma.organization.findUnique({ where: { id: orgId } });
     if (!org) return reply.status(404).send({ message: "Organizasyon bulunamadi" });
 
-    const authUrl = new URL("https://www.instagram.com/oauth/authorize");
+    const authUrl = new URL("https://api.instagram.com/oauth/authorize");
     authUrl.searchParams.set("client_id", appId);
     authUrl.searchParams.set("redirect_uri", redirectUri);
     authUrl.searchParams.set("response_type", "code");

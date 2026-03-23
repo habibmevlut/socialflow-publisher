@@ -1,0 +1,21 @@
+---
+description: pnpm komutlarından önce nvm use çalıştır
+alwaysApply: true
+---
+
+# Node & pnpm
+
+pnpm komutlarını çalıştırmadan önce **mutlaka** `nvm use` ekle.
+
+```bash
+# ✅ DOĞRU
+nvm use && pnpm install
+nvm use && pnpm run dev
+nvm use && pnpm add sharp --filter @socialflow/api
+
+# ❌ YANLIŞ
+pnpm install
+pnpm run dev
+```
+
+Projede `.nvmrc` (Node 24.12.0) var; `nvm use` bu sürümü aktif eder.

@@ -27,16 +27,34 @@ export function getMinioPublicUrl(objectName: string): string {
   return `${base}/${bucket}/${objectName}`;
 }
 
-const ALLOWED_TYPES = ["video/mp4", "video/quicktime", "video/webm", "video/x-msvideo"];
-const MAX_SIZE_MB = 500;
+const ALLOWED_VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/webm", "video/x-msvideo"];
+const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
+const MAX_VIDEO_SIZE_MB = 500;
+const MAX_IMAGE_SIZE_MB = 20;
+const MAX_CAROUSEL_IMAGES = 10;
 
 export function isAllowedVideoType(mimetype: string): boolean {
-  return ALLOWED_TYPES.includes(mimetype);
+  return ALLOWED_VIDEO_TYPES.includes(mimetype);
+}
+
+export function isAllowedImageType(mimetype: string): boolean {
+  return ALLOWED_IMAGE_TYPES.includes(mimetype);
 }
 
 export function getMaxSizeBytes(): number {
-  return MAX_SIZE_MB * 1024 * 1024;
+  return MAX_VIDEO_SIZE_MB * 1024 * 1024;
 }
+
+export function getMaxImageSizeBytes(): number {
+  return MAX_IMAGE_SIZE_MB * 1024 * 1024;
+}
+
+export function getMaxCarouselImages(): number {
+  return MAX_CAROUSEL_IMAGES;
+}
+
+export const ALLOWED_VIDEO_TYPES_LIST = ALLOWED_VIDEO_TYPES;
+export const ALLOWED_IMAGE_TYPES_LIST = ALLOWED_IMAGE_TYPES;
 
 export async function ensureBucket(): Promise<void> {
   const exists = await minioClient.bucketExists(bucket);

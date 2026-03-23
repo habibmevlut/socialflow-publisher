@@ -9,6 +9,8 @@
   "scripts": {
     "dev": "docker compose up -d postgres redis minio && turbo run dev --parallel",
     "tunnel": "ngrok http 4000",
+    "tunnel:minio": "npx localtunnel --port 9000",
+    "tunnel:minio:ngrok": "ngrok http 9000",
     "tunnel:cf": "cloudflared tunnel --url http://localhost:4000",
     "tunnel:cf:minio": "cloudflared tunnel --url http://localhost:9000",
     "db:studio": "node scripts/db-studio.mjs",

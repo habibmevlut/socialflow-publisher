@@ -12,7 +12,8 @@ export type PublishJobData = {
   postTargetId: string;
   platform: string;
   accountId: string;
-  videoUrl: string;
+  mediaType: "video" | "image";
+  mediaUrls: string[]; // video: 1, image: 1 veya 2-10 (carousel)
 };
 
 export async function enqueuePublish(data: PublishJobData) {

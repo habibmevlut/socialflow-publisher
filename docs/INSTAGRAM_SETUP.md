@@ -66,9 +66,40 @@ WEB_BASE_URL=http://localhost:3001
   - **Add** → Instagram kullanıcı adı veya e-posta gir
   - Davet **Pending** ise: Instagram’da **Ayarlar** → **Uygulamalar ve web siteleri** → **Tester davetleri** → Kabul et
 
-## 6. Video URL Gereksinimi
+## 6. Media URL Gereksinimi (Video + Resim + Carousel)
 
-Instagram API videoyu **public URL** üzerinden çeker. Meta sunuculari localhost'a erisemez. Local'de `ngrok http 9000` calistirip `.env`'de `MINIO_PUBLIC_BASE_URL` ayarlayin. MinIO bucket’ı public olmalı (zaten ayarlı).
+Instagram API medyayı **public HTTPS URL** üzerinden çeker. Meta sunuculari localhost'a erisemez. **ngrok** (authtoken gerekli — [dashboard.ngrok.com](https://dashboard.ngrok.com/get-started/your-authtoken)) veya **localtunnel** (`npx localtunnel --port 9000`, hesap yok). Cloudflare Quick Tunnel değil. `.env`: `MINIO_PUBLIC_BASE_URL=https://xxx.ngrok-free.app` veya `https://xxx.loca.lt`. MinIO bucket’ı public olmalı (zaten ayarlı).
+
+## OAuth Redirect URI nerede eklenir?
+
+1. **Meta Dashboard** → Uygulamanı seç
+2. Sol menü: **Use cases** > **Customize** → **Instagram API** sekmesi
+3. **API setup with Instagram login** seç
+4. **Step 4: Set up Instagram business login** bölümünde **"Business login settings"** linkine tıkla
+5. **OAuth redirect URIs** kısmına tam URL ekle (örn: `https://xxx.trycloudflare.com/auth/instagram/callback`)
+6. **Save** tıkla
+
+## 7. Hata: "Only photo or video can be accepted as media type"
+
+Detaylı çözüm: [INSTAGRAM_MEDIA_URL_TROUBLESHOOTING.md](./INSTAGRAM_MEDIA_URL_TROUBLESHOOTING.md). Özet: MinIO için **ngrok** kullanın, Cloudflare tunnel değil.
+
+## 8. Hata: "Invalid platform app"
+
+Bu hata genelde Meta uygulaması yapılandırmasından kaynaklanır.
+
+### Kontrol listesi
+
+1. **App ID doğru mu?** Meta for Developers → **My Apps** → Uygulama → **Settings** → **Basic** → **App ID**. Bu değer `INSTAGRAM_APP_ID` ile aynı olmalı. Ayrı "Instagram App ID" yok; Meta App ID kullanılır.
+
+2. **Instagram ürünü** App Dashboard → **Add Product** → **Instagram** → **API setup with Instagram login** → **Business login** yapılandırıldı mı?
+
+3. **Valid OAuth Redirect URIs** tam URL eklendi mi? Örn: `https://xxx.ngrok-free.app/auth/instagram/callback` (trailing slash yok).
+
+4. **INSTAGRAM_REDIRECT_BASE** ile callback URL tutarlı mı? `INSTAGRAM_REDIRECT_BASE=https://xxx.ngrok-free.app` ise callback `https://xxx.ngrok-free.app/auth/instagram/callback` olur.
+
+5. **Instagram Testers** eklendi ve davet kabul edildi mi? App roles → Instagram Testers → Add. Pending daveti Instagram'da kabul et.
+
+6. Uygulama tipi **Business** olmalı.
 
 ## Notlar
 

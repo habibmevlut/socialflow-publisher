@@ -2,6 +2,7 @@ import "./load-env"; // AUTH_SECRET vb. - auth.ts yuklenmeden once .env yuklenir
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
+import sharp from "sharp";
 import { z } from "zod";
 import { prisma } from "./lib/prisma";
 import { enqueuePublish } from "./lib/queue";
@@ -16,13 +17,19 @@ import {
   MINIO_BUCKET,
   getMinioPublicUrl,
   isAllowedVideoType,
+  isAllowedImageType,
   getMaxSizeBytes,
+  getMaxImageSizeBytes,
   ensureBucket
 } from "./lib/minio";
 
+const IMAGE_PLATFORMS = ["instagram", "facebook"];
+const VIDEO_PLATFORMS = ["youtube", "instagram", "tiktok", "facebook"];
+
 const createPostSchema = z.object({
   title: z.string().min(2).max(120),
-  videoUrl: z.string().url(),
+  mediaType: z.enum(["video", "image"]).default("video"),
+  mediaUrls: z.array(z.string().url()).min(1).max(10),
   publishNow: z.boolean().optional().default(false),
   scheduledAt: z.string().datetime().optional(),
   targets: z
@@ -36,6 +43,15 @@ const createPostSchema = z.object({
     )
     .min(1)
 });
+
+function getMediaUrls(post: { media: { mediaUrl: string; sortOrder: number }[]; videoUrl: string | null }): string[] {
+  if (post.media.length > 0) {
+    return post.media
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+      .map((m) => m.mediaUrl);
+  }
+  return post.videoUrl ? [post.videoUrl] : [];
+}
 
 async function bootstrap() {
   const app = Fastify({ logger: true });
@@ -58,29 +74,55 @@ async function bootstrap() {
     const auth = await requireAuth(request, reply);
     if (!auth) return;
     try {
-    const data = await request.file();
-    if (!data) {
-      return reply.status(400).send({ message: "Dosya gerekli" });
-    }
-    const buf = await data.toBuffer();
-    const mimetype = data.mimetype ?? "application/octet-stream";
-    if (!isAllowedVideoType(mimetype)) {
-      return reply.status(400).send({
-        message: "Gecersiz video formati. Desteklenen: mp4, mov, webm, avi"
-      });
-    }
-    const ext = mimetype.split("/")[1] ?? "mp4";
-    const objectName = `videos/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-    await minioClient.putObject(MINIO_BUCKET, objectName, buf, buf.length, { "Content-Type": mimetype });
-    const url = getMinioPublicUrl(objectName);
-    return reply.send({ url });
-  } catch (err) {
-    request.log.error(err);
-    return reply.status(500).send({ message: "Yukleme hatasi" });
-  }
-});
+      const data = await request.file();
+      if (!data) {
+        return reply.status(400).send({ message: "Dosya gerekli" });
+      }
+      const buf = await data.toBuffer();
+      const mimetype = data.mimetype ?? "application/octet-stream";
+      const isVideo = isAllowedVideoType(mimetype);
+      const isImage = isAllowedImageType(mimetype);
+      if (!isVideo && !isImage) {
+        return reply.status(400).send({
+          message: "Gecersiz format. Video: mp4, mov, webm, avi. Resim: jpeg, png, webp"
+        });
+      }
+      const maxSize = isVideo ? getMaxSizeBytes() : getMaxImageSizeBytes();
+      if (buf.length > maxSize) {
+        return reply.status(400).send({
+          message: isVideo ? "Video en fazla 500MB olabilir" : "Resim en fazla 20MB olabilir"
+        });
+      }
 
-app.get("/health", async () => ({
+      let finalBuf = buf;
+      let finalMimetype = mimetype;
+      let finalExt = mimetype.split("/")[1]?.replace("jpeg", "jpg") ?? (isVideo ? "mp4" : "jpg");
+
+      // Instagram sadece JPEG kabul eder - PNG/WebP'yi otomatik donustur
+      if (isImage && (mimetype === "image/png" || mimetype === "image/webp")) {
+        finalBuf = await sharp(buf).jpeg({ quality: 90 }).toBuffer();
+        finalMimetype = "image/jpeg";
+        finalExt = "jpg";
+      }
+
+      const prefix = isVideo ? "videos" : "images";
+      const objectName = `${prefix}/${Date.now()}-${Math.random().toString(36).slice(2)}.${finalExt}`;
+      await minioClient.putObject(MINIO_BUCKET, objectName, finalBuf, finalBuf.length, {
+        "Content-Type": finalMimetype
+      });
+      const url = getMinioPublicUrl(objectName);
+      return reply.send({
+        url,
+        mediaType: isVideo ? "video" : "image",
+        mimetype: finalMimetype
+      });
+    } catch (err) {
+      request.log.error(err);
+      return reply.status(500).send({ message: "Yukleme hatasi" });
+    }
+  });
+
+  app.get("/health", async () => ({
     service: "socialflow-api",
     status: "ok",
     timestamp: new Date().toISOString()
@@ -98,8 +140,23 @@ app.get("/health", async () => ({
       });
     }
 
-    const { title, videoUrl, publishNow, scheduledAt, targets } = parsed.data;
+    const { title, mediaType, mediaUrls, publishNow, scheduledAt, targets } = parsed.data;
     const organizationId = auth.organizationId;
+
+    if (mediaType === "video" && mediaUrls.length !== 1) {
+      return reply.status(400).send({ message: "Video icin tek medya URL gerekli" });
+    }
+    if (mediaType === "image" && (mediaUrls.length < 1 || mediaUrls.length > 10)) {
+      return reply.status(400).send({ message: "Resim icin 1-10 URL gerekli" });
+    }
+    if (mediaType === "image") {
+      const invalidPlatforms = targets.filter((t) => !IMAGE_PLATFORMS.includes(t.platform));
+      if (invalidPlatforms.length > 0) {
+        return reply.status(400).send({
+          message: "Resim/carousel sadece Instagram ve Facebook destekler. YouTube ve TikTok hedeflerini kaldirin."
+        });
+      }
+    }
 
     const org = await prisma.organization.findUnique({ where: { id: organizationId } });
     if (!org) {
@@ -116,9 +173,16 @@ app.get("/health", async () => ({
       data: {
         organizationId,
         title,
-        videoUrl,
+        mediaType: mediaType as "video" | "image",
         status,
         scheduledAt: scheduledDate,
+        media: {
+          create: mediaUrls.map((url, i) => ({
+            mediaUrl: url,
+            sortOrder: i,
+            mimetype: null
+          }))
+        },
         targets: {
           create: targets.map((t) => ({
             platform: t.platform,
@@ -129,8 +193,10 @@ app.get("/health", async () => ({
           }))
         }
       },
-      include: { targets: true }
+      include: { targets: true, media: true }
     });
+
+    const urls = getMediaUrls(post);
 
     if (isPublishNow) {
       for (const t of post.targets) {
@@ -140,7 +206,8 @@ app.get("/health", async () => ({
             postTargetId: t.id,
             platform: t.platform,
             accountId: t.accountId,
-            videoUrl: post.videoUrl
+            mediaType: mediaType as "video" | "image",
+            mediaUrls: urls
           });
         }
       }
@@ -156,7 +223,9 @@ app.get("/health", async () => ({
       id: post.id,
       organizationId: post.organizationId,
       title: post.title,
-      videoUrl: post.videoUrl,
+      mediaType: post.mediaType,
+      mediaUrls: urls,
+      videoUrl: urls[0] ?? null,
       status: post.status,
       scheduledAt: post.scheduledAt?.toISOString() ?? null,
       targets: post.targets.map((t) => ({
@@ -179,11 +248,16 @@ app.get("/health", async () => ({
     const { id } = request.params as { id: string };
     const post = await prisma.post.findUnique({
       where: { id },
-      include: { targets: true }
+      include: { targets: true, media: true }
     });
     if (!post) return reply.status(404).send({ message: "Post bulunamadi" });
     if (post.organizationId !== auth.organizationId) return reply.status(403).send({ message: "Yetkisiz" });
     if (post.status === "published") return reply.status(400).send({ message: "Post zaten yayinlandi" });
+
+    const mediaUrls = getMediaUrls(post);
+    if (mediaUrls.length === 0) {
+      return reply.status(400).send({ message: "Post medya icermiyor" });
+    }
 
     for (const t of post.targets) {
       if (t.enabled && t.status === "pending") {
@@ -192,7 +266,8 @@ app.get("/health", async () => ({
           postTargetId: t.id,
           platform: t.platform,
           accountId: t.accountId,
-          videoUrl: post.videoUrl
+          mediaType: post.mediaType as "video" | "image",
+          mediaUrls
         });
       }
     }
@@ -208,29 +283,34 @@ app.get("/health", async () => ({
 
     const posts = await prisma.post.findMany({
       where: { organizationId: auth.organizationId },
-      include: { targets: true },
+      include: { targets: true, media: true },
       orderBy: { createdAt: "desc" }
     });
 
     return reply.send(
-      posts.map((p) => ({
-        id: p.id,
-        organizationId: p.organizationId,
-        title: p.title,
-        videoUrl: p.videoUrl,
-        status: p.status,
-        scheduledAt: p.scheduledAt?.toISOString() ?? null,
-        targets: p.targets.map((t) => ({
-          id: t.id,
-          platform: t.platform,
-          accountId: t.accountId,
-          caption: t.caption,
-          enabled: t.enabled,
-          status: t.status,
-          errorMessage: t.errorMessage
-        })),
-        createdAt: p.createdAt.toISOString()
-      }))
+      posts.map((p) => {
+        const mediaUrls = getMediaUrls(p);
+        return {
+          id: p.id,
+          organizationId: p.organizationId,
+          title: p.title,
+          mediaType: p.mediaType,
+          mediaUrls,
+          videoUrl: mediaUrls[0] ?? null,
+          status: p.status,
+          scheduledAt: p.scheduledAt?.toISOString() ?? null,
+          targets: p.targets.map((t) => ({
+            id: t.id,
+            platform: t.platform,
+            accountId: t.accountId,
+            caption: t.caption,
+            enabled: t.enabled,
+            status: t.status,
+            errorMessage: t.errorMessage
+          })),
+          createdAt: p.createdAt.toISOString()
+        };
+      })
     );
   });
 

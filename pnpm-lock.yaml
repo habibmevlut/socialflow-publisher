@@ -32,6 +32,9 @@ importers:
       '@socialflow/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@socialflow/redis-connection':
+        specifier: workspace:*
+        version: link:../../packages/redis-connection
       bcryptjs:
         specifier: ^3.0.3
         version: 3.0.3
@@ -127,6 +130,9 @@ importers:
       '@socialflow/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@socialflow/redis-connection':
+        specifier: workspace:*
+        version: link:../../packages/redis-connection
       bullmq:
         specifier: ^5.70.2
         version: 5.70.4
@@ -171,6 +177,8 @@ importers:
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
+
+  packages/redis-connection: {}
 
 packages:
 

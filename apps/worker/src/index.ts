@@ -1,6 +1,7 @@
 import "./load-env";
 
 import { Queue, Worker } from "bullmq";
+import { getBullmqConnection } from "@socialflow/redis-connection";
 import { prisma } from "@socialflow/db";
 import { uploadVideoToYouTube } from "./youtube-upload";
 import { uploadVideoToInstagram } from "./instagram-upload";
@@ -11,10 +12,7 @@ import { uploadCarouselToInstagram } from "./instagram-carousel-upload";
 import { uploadImageToFacebook } from "./facebook-image-upload";
 import { uploadCarouselToFacebook } from "./facebook-carousel-upload";
 
-const connection = {
-  host: process.env.REDIS_HOST ?? "127.0.0.1",
-  port: Number(process.env.REDIS_PORT ?? 6379)
-};
+const connection = getBullmqConnection();
 
 const queueName = "publish-post";
 const publishQueue = new Queue(queueName, { connection });

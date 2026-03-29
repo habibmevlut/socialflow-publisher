@@ -45,6 +45,8 @@ pnpm dev
 
 Web arayuzu API'ye `NEXT_PUBLIC_API_URL` (varsayilan: `http://localhost:4000`) uzerinden baglanir.
 
+**Production / Docker:** [docs/DEPLOY.md](docs/DEPLOY.md) — Railway: [docs/DEPLOY_RAILWAY.md](docs/DEPLOY_RAILWAY.md) (`Dockerfile.api`, `Dockerfile.worker`).
+
 ## API ornek
 
 Seed sonrasi `demo-org-1` organizasyonu mevcut:

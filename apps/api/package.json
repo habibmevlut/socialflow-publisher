@@ -18,6 +18,7 @@
     "@fastify/cors": "^11.2.0",
     "@fastify/multipart": "^9.0.1",
     "@socialflow/db": "workspace:*",
+    "@socialflow/redis-connection": "workspace:*",
     "bcryptjs": "^3.0.3",
     "bullmq": "^5.70.2",
     "dotenv": "^16.4.7",

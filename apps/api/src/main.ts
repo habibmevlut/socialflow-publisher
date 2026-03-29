@@ -339,7 +339,7 @@ async function bootstrap() {
     return reply.status(204).send();
   });
 
-  const port = Number(process.env.API_PORT ?? 4000);
+  const port = Number(process.env.PORT ?? process.env.API_PORT ?? 4000);
   await app.listen({ port, host: "0.0.0.0" });
 }
 

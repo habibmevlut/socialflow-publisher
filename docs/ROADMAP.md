@@ -20,6 +20,7 @@ Projenin ana akışını takip etmek için adım adım yol haritası.
 - [x] **YouTube gerçek upload** – Worker videoyu MinIO'dan indirip YouTube API ile yükler (private)
 - [x] **Instagram** – OAuth (Business Login), "Instagram Bağla", Reel upload (Graph API)
 - [x] **Facebook** – OAuth (Facebook Login), "Facebook Bağla", Page video upload (Graph API)
+- [x] **Web panel (Tailwind)** – Sidebar, dashboard, postlar, yeni post, zamanlanmış, hesaplar, ayarlar; modern form kontrolleri; proje geneli onay modalı (`ConfirmModal`)
 
 ---
 
@@ -37,8 +38,8 @@ Projenin ana akışını takip etmek için adım adım yol haritası.
 
 ## Şu an neredeyiz?
 
-**Son tamamlanan:** Facebook OAuth + Page video upload  
-**Sıradaki:** Video + resim medya tipi desteği, Adım 12 (Onay akışı), TikTok (onay bekliyor)
+**Son tamamlanan:** Panel UI (Tailwind), Instagram resim/carousel + MinIO akışları (mevcut kod tabanında), hesap silme için özel onay penceresi, Ayarlar sayfasında oturum/API özeti.  
+**Sıradaki:** TikTok (inceleme / üretim hazırlığı), isteğe bağlı **Adım 12** (onay akışı) ve **Adım 13** (raporlama). Medya tipi (video/resim) create-post akışı panelde mevcut; ROADMAP’teki eski “video+resim sıradaki” maddesi güncellendi.
 
 ---
 
